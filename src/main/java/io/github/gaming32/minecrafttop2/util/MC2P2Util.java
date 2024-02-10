@@ -2,6 +2,7 @@ package io.github.gaming32.minecrafttop2.util;
 
 import net.minecraft.Util;
 import net.minecraft.core.Direction;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -35,5 +36,27 @@ public class MC2P2Util {
         return side.getAxisDirection() == Direction.AxisDirection.POSITIVE
             ? aabb.max(side.getAxis())
             : aabb.min(side.getAxis());
+    }
+
+    public static int getSide(BoundingBox box, Direction direction) {
+        return switch (direction) {
+            case DOWN -> box.minY();
+            case UP -> box.maxY();
+            case NORTH -> box.minZ();
+            case SOUTH -> box.maxZ();
+            case WEST -> box.minX();
+            case EAST -> box.maxX();
+        };
+    }
+
+    public static BoundingBox oneSided(BoundingBox box, Direction direction) {
+        return switch (direction) {
+            case DOWN -> new BoundingBox(box.minX(), box.minY(), box.minZ(), box.maxX(), box.minY(), box.maxZ());
+            case UP -> new BoundingBox(box.minX(), box.maxY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ());
+            case NORTH -> new BoundingBox(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.minZ());
+            case SOUTH -> new BoundingBox(box.minX(), box.minY(), box.maxZ(), box.maxX(), box.maxY(), box.maxZ());
+            case WEST -> new BoundingBox(box.minX(), box.minY(), box.minZ(), box.minX(), box.maxY(), box.maxZ());
+            case EAST -> new BoundingBox(box.maxX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ());
+        };
     }
 }

@@ -6,23 +6,14 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.logging.LogUtils;
 import io.github.gaming32.minecrafttop2.steam.SteamGames;
 import io.github.gaming32.minecrafttop2.steam.SteamUtil;
-import io.github.gaming32.minecrafttop2.vmf.MaterialInfo;
-import io.github.gaming32.minecrafttop2.vmf.SimpleBrush;
-import io.github.gaming32.minecrafttop2.vmf.SourceEntity;
 import io.github.gaming32.minecrafttop2.vmf.SourceMap;
-import io.github.gaming32.minecrafttop2.vmf.SourceUtil;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
-import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.Vec3;
 import net.platinumdigitalgroup.jvdf.VDFWriter;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -33,7 +24,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
@@ -80,51 +70,9 @@ public class MinecraftToPortal2 implements ModInitializer {
     public static void generateMap(String mapName, ServerLevel level, BoundingBox area) {
         if (SteamGames.PORTAL_2_PATH == null) return;
         final Path mapPath = SteamGames.PORTAL_2_PATH.resolve("sdk_content/maps/" + mapName + ".vmf");
-        final MaterialInfo skyboxMaterial = new MaterialInfo(
-            "ANIM_WP/FRAMEWORK/BACKPANELS",
-            MaterialInfo.UvAxis.DEFAULT,
-            MaterialInfo.UvAxis.shift(-256)
-        );
-        final int xSize64 = area.getXSpan() * 64;
-        final int ySize64 = area.getYSpan() * 64;
-        final int zSize64 = area.getZSpan() * 64;
-        final SourceMap.Builder map = SourceMap.builder()
-            .brush(new SimpleBrush(
-                new AABB(0, -16, 0, xSize64, 0, zSize64),
-                Map.of(Direction.UP, skyboxMaterial)
-            ))
-            .brush(new SimpleBrush(
-                new AABB(-16, 0, 0, 0, ySize64, zSize64),
-                Map.of(Direction.EAST, skyboxMaterial)
-            ))
-            .brush(new SimpleBrush(
-                new AABB(xSize64, 0, 0, xSize64 + 16, ySize64, zSize64),
-                Map.of(Direction.WEST, skyboxMaterial)
-            ))
-            .brush(new SimpleBrush(
-                new AABB(0, 0, -16, xSize64, ySize64, 0),
-                Map.of(Direction.SOUTH, skyboxMaterial)
-            ))
-            .brush(new SimpleBrush(
-                new AABB(0, 0, zSize64, xSize64, ySize64, zSize64 + 16),
-                Map.of(Direction.NORTH, skyboxMaterial)
-            ))
-            .brush(new SimpleBrush(
-                new AABB(0, ySize64, 0, xSize64, ySize64 + 16, zSize64),
-                Map.of(Direction.DOWN, skyboxMaterial)
-            ));
-        final AABB aabb = AABB.of(area);
-        for (final Entity entity : level.getEntities(null, aabb)) {
-            if (entity instanceof ArmorStand armorStand) {
-                map.entity(SourceEntity.builder("info_player_start")
-                    .origin(SourceUtil.transform(aabb, armorStand.position()))
-                    .angles(new Vec3(0, armorStand.getYRot(), 0))
-                    .build()
-                );
-            }
-        }
+        final SourceMap map = new MapGenerator(level, area).generate();
         try {
-            Files.writeString(mapPath, new VDFWriter().write(map.build().toVmf(), true), StandardCharsets.UTF_8);
+            Files.writeString(mapPath, new VDFWriter().write(map.toVmf(), true), StandardCharsets.UTF_8);
         } catch (IOException e) {
             LOGGER.error("Failed to write map", e);
         }
