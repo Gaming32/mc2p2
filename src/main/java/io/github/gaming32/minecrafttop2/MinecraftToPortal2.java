@@ -2,6 +2,7 @@ package io.github.gaming32.minecrafttop2;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.logging.LogUtils;
 import io.github.gaming32.minecrafttop2.steam.SteamGames;
 import io.github.gaming32.minecrafttop2.steam.SteamUtil;
@@ -9,12 +10,17 @@ import io.github.gaming32.minecrafttop2.vmf.MaterialInfo;
 import io.github.gaming32.minecrafttop2.vmf.SimpleBrush;
 import io.github.gaming32.minecrafttop2.vmf.SourceEntity;
 import io.github.gaming32.minecrafttop2.vmf.SourceMap;
+import io.github.gaming32.minecrafttop2.vmf.SourceUtil;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.platinumdigitalgroup.jvdf.VDFWriter;
@@ -55,9 +61,14 @@ public class MinecraftToPortal2 implements ModInitializer {
         });
     }
 
-    private static int generateMap(CommandContext<CommandSourceStack> context) {
-        generateMap("mc2p2_test_map");
-        compileMap("mc2p2_test_map", true, context.getSource().getServer(), t -> {
+    private static int generateMap(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        final BoundingBox mapArea = BoundingBox.fromCorners(
+            BlockPosArgument.getLoadedBlockPos(context, "from"),
+            BlockPosArgument.getLoadedBlockPos(context, "to")
+        );
+        final String mapName = StringArgumentType.getString(context, "name"); // TODO: Validation
+        generateMap(mapName, context.getSource().getLevel(), mapArea);
+        compileMap(mapName, true, context.getSource().getServer(), t -> {
             if (t == null) {
                 LOGGER.info("Finished compiling map");
             }
@@ -66,46 +77,54 @@ public class MinecraftToPortal2 implements ModInitializer {
         return 1;
     }
 
-    public static void generateMap(String mapName) {
+    public static void generateMap(String mapName, ServerLevel level, BoundingBox area) {
         if (SteamGames.PORTAL_2_PATH == null) return;
         final Path mapPath = SteamGames.PORTAL_2_PATH.resolve("sdk_content/maps/" + mapName + ".vmf");
-        final MaterialInfo wallMaterial = new MaterialInfo(
-            "TILE/WHITE_WALL_TILE003A",
+        final MaterialInfo skyboxMaterial = new MaterialInfo(
+            "ANIM_WP/FRAMEWORK/BACKPANELS",
             MaterialInfo.UvAxis.DEFAULT,
             MaterialInfo.UvAxis.shift(-256)
         );
-        final SourceMap map = SourceMap.builder()
+        final int xSize64 = area.getXSpan() * 64;
+        final int ySize64 = area.getYSpan() * 64;
+        final int zSize64 = area.getZSpan() * 64;
+        final SourceMap.Builder map = SourceMap.builder()
             .brush(new SimpleBrush(
-                new AABB(-512, 0, -512, 512, 64, 512),
-                Map.of(Direction.UP, MaterialInfo.defaultFor("TILE/WHITE_FLOOR_TILE002A"))
+                new AABB(0, -16, 0, xSize64, 0, zSize64),
+                Map.of(Direction.UP, skyboxMaterial)
             ))
             .brush(new SimpleBrush(
-                new AABB(-512 - 64, 64, -512, -512, 512 + 64, 512),
-                Map.of(Direction.EAST, wallMaterial)
+                new AABB(-16, 0, 0, 0, ySize64, zSize64),
+                Map.of(Direction.EAST, skyboxMaterial)
             ))
             .brush(new SimpleBrush(
-                new AABB(512 + 64, 64, -512, 512, 512 + 64, 512),
-                Map.of(Direction.WEST, wallMaterial)
+                new AABB(xSize64, 0, 0, xSize64 + 16, ySize64, zSize64),
+                Map.of(Direction.WEST, skyboxMaterial)
             ))
             .brush(new SimpleBrush(
-                new AABB(-512, 64, -512 - 64, 512, 512 + 64, -512),
-                Map.of(Direction.SOUTH, wallMaterial)
+                new AABB(0, 0, -16, xSize64, ySize64, 0),
+                Map.of(Direction.SOUTH, skyboxMaterial)
             ))
             .brush(new SimpleBrush(
-                new AABB(-512, 64, 512 + 64, 512, 512 + 64, 512),
-                Map.of(Direction.NORTH, wallMaterial)
+                new AABB(0, 0, zSize64, xSize64, ySize64, zSize64 + 16),
+                Map.of(Direction.NORTH, skyboxMaterial)
             ))
             .brush(new SimpleBrush(
-                new AABB(-512, 512 + 64, -512, 512, 512 + 128, 512),
-                Map.of(Direction.DOWN, MaterialInfo.defaultFor("TILE/WHITE_CEILING_TILE002A"))
-            ))
-            .entity(SourceEntity.builder("info_player_start")
-                .origin(new Vec3(0, 64, 0))
-                .build()
-            )
-            .build();
+                new AABB(0, ySize64, 0, xSize64, ySize64 + 16, zSize64),
+                Map.of(Direction.DOWN, skyboxMaterial)
+            ));
+        final AABB aabb = AABB.of(area);
+        for (final Entity entity : level.getEntities(null, aabb)) {
+            if (entity instanceof ArmorStand armorStand) {
+                map.entity(SourceEntity.builder("info_player_start")
+                    .origin(SourceUtil.transform(aabb, armorStand.position()))
+                    .angles(new Vec3(0, armorStand.getYRot(), 0))
+                    .build()
+                );
+            }
+        }
         try {
-            Files.writeString(mapPath, new VDFWriter().write(map.toVmf(), true), StandardCharsets.UTF_8);
+            Files.writeString(mapPath, new VDFWriter().write(map.build().toVmf(), true), StandardCharsets.UTF_8);
         } catch (IOException e) {
             LOGGER.error("Failed to write map", e);
         }

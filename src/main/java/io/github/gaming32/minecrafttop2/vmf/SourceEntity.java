@@ -25,7 +25,7 @@ public record SourceEntity(
         result.put("id", id++);
         result.put("classname", clazz);
         if (brush == null) {
-            result.put("angles", SourceUtil.getVectorString(angles));
+            result.put("angles", SourceUtil.getRotationString(angles));
         } else {
             result.put("origin", SourceUtil.getVectorString(origin));
         }
