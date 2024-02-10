@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "minecraft-to-p2",
+  "version": "${version}",
+  "name": "Minecraft to Portal 2",
+  "description": "",
+  "authors": [],
+  "contact": {
+    "repo": "https://github.com/Gaming32/minecraft-to-p2"
+  },
+  "license": "MIT",
+  "icon": "assets/minecraft-to-p2/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "io.github.gaming32.minecrafttop2.MinecraftToPortal2"
+    ]
+  },
+  "mixins": [
+    "minecraft-to-p2.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
