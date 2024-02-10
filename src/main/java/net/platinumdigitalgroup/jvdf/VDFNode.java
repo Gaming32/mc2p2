@@ -34,6 +34,12 @@ public class VDFNode extends LinkedHashMap<String, Object[]> {
      * @return the value
      */
     public Object put(String key, Object value) {
+        if (value instanceof Integer i) {
+            value = i.toString();
+        }
+        if (!(value instanceof String) && !(value instanceof VDFNode)) {
+            throw new IllegalArgumentException("VDFNode value must be String or VDFNode");
+        }
         Object[] values = this.get(key);
         if(values == null) {
             this.put(key, new Object[]{ value });

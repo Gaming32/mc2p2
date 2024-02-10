@@ -1,20 +1,19 @@
-package io.github.gaming32.minecrafttop2;
+package io.github.gaming32.minecrafttop2.vmf;
 
 import io.github.gaming32.minecrafttop2.util.MC2P2Util;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
-import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.platinumdigitalgroup.jvdf.VDFNode;
 
 import java.util.Map;
 
-public record SimpleBrush(AABB bounds, Map<Direction, MaterialInfo> materials) {
-    // NOTE: Remember, before adding elements to result, their y and z axes need to be swapped.
-    public VDFNode createNode(int id) {
+public record SimpleBrush(AABB bounds, Map<Direction, MaterialInfo> materials) implements ToVmfWithId {
+    @Override
+    public VDFNode toVmf(int id) {
         final VDFNode result = new VDFNode();
-        result.put("id", Integer.toString(id++));
+        result.put("id", id++);
         for (final Direction dir : MC2P2Util.DIRECTIONS) {
             final Direction up = switch (dir.getAxis().getPlane()) {
                 case HORIZONTAL -> Direction.UP;
@@ -29,7 +28,7 @@ public record SimpleBrush(AABB bounds, Map<Direction, MaterialInfo> materials) {
             };
             final VDFNode side = new VDFNode();
             result.put("side", side);
-            side.put("id", Integer.toString(id++));
+            side.put("id", id++);
             side.put("plane", getPlaneString(
                 MC2P2Util.getCorner(bounds, up.getOpposite(), left, dir),
                 MC2P2Util.getCorner(bounds, up, left, dir),
@@ -46,15 +45,19 @@ public record SimpleBrush(AABB bounds, Map<Direction, MaterialInfo> materials) {
         return result;
     }
 
+    @Override
+    public int idsUsed() {
+        return 7;
+    }
+
     private static String getUvString(MaterialInfo.UvAxis axis, Vec3i dir) {
         return "[" + dir.getX() + " " + dir.getZ() + " " + dir.getY() + " " + axis.shift() + "] " + axis.scale();
     }
 
     private static String getPlaneString(Vec3 bottomLeft, Vec3 upperLeft, Vec3 upperRight) {
-        return getVectorString(bottomLeft) + " " + getVectorString(upperLeft) + " " + getVectorString(upperRight);
-    }
-
-    private static String getVectorString(Vec3 vec) {
-        return "(" + Mth.floor(vec.x) + " " + Mth.floor(vec.z) + " " + Mth.floor(vec.y) + ")";
+        return '(' + SourceUtil.getVectorString(bottomLeft)
+            + ") (" + SourceUtil.getVectorString(upperLeft)
+            + ") (" + SourceUtil.getVectorString(upperRight)
+            + ')';
     }
 }
