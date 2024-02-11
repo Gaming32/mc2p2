@@ -6,6 +6,8 @@
   "mixins": [
   ],
   "client": [
+    "GameTestDebugRendererAccessor",
+    "MixinGameTestDebugRenderer"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -14,6 +14,9 @@
   "entrypoints": {
     "main": [
       "io.github.gaming32.mc2p2.MC2P2"
+    ],
+    "client": [
+      "io.github.gaming32.mc2p2.client.MC2P2Client"
     ]
   },
   "mixins": [

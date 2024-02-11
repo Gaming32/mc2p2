@@ -1,5 +1,6 @@
-package io.github.gaming32.mc2p2;
+package io.github.gaming32.mc2p2.generator;
 
+import com.demonwav.mcdev.annotations.Translatable;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 import io.github.gaming32.mc2p2.util.MC2P2Util;
@@ -10,6 +11,7 @@ import io.github.gaming32.mc2p2.vmf.SourceMap;
 import io.github.gaming32.mc2p2.vmf.SourceUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
@@ -19,11 +21,14 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoorHingeSide;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
@@ -51,16 +56,18 @@ public class MapGenerator {
     private final ServerLevel level;
     private final BoundingBox area;
     private final AABB aabb;
+    private final IssueConsumer issueConsumer;
     private final SourceMap.Builder map;
     private final Set<BlockPos> usedBlocks = new HashSet<>();
     private final Multimap<Block, BlockPos> blockLookup = LinkedHashMultimap.create();
     private final List<SourceEntity.EntityConnection> autoConnections = new ArrayList<>();
     private int entityNameId = 1;
 
-    public MapGenerator(ServerLevel level, BoundingBox area) {
+    public MapGenerator(ServerLevel level, BoundingBox area, IssueConsumer issueConsumer) {
         this.level = level;
         this.area = area;
         this.aabb = AABB.of(area);
+        this.issueConsumer = issueConsumer;
         this.map = initializeMap();
     }
 
@@ -79,6 +86,15 @@ public class MapGenerator {
                     .property("CanFirePortal1", "1")
                     .property("CanFirePortal2", "1")
                     .build()
+                );
+            }
+        }
+        if (!blockLookup.isEmpty()) {
+            for (final var entry : blockLookup.asMap().entrySet()) {
+                issueConsumer.issue(
+                    IssueLevel.INFO,
+                    Component.translatable("mc2p2.issue.message.unknown_block", entry.getKey().getName()),
+                    entry.getValue()
                 );
             }
         }
@@ -101,11 +117,19 @@ public class MapGenerator {
             for (final BlockPos door : blockLookup.removeAll(doorBlockType.getKey())) {
                 if (!usedBlocks.add(door)) continue;
                 final BlockState state = level.getBlockState(door);
-                if (state.getValue(DoorBlock.HINGE) != DoorHingeSide.LEFT) continue;
+                if (state.getValue(DoorBlock.HALF) != DoubleBlockHalf.LOWER) continue;
                 final Direction facing = state.getValue(DoorBlock.FACING);
-                final BlockState neighbor = level.getBlockState(door.relative(facing.getCounterClockWise()));
+                if (state.getValue(DoorBlock.HINGE) != DoorHingeSide.LEFT) {
+                    final BlockState neighbor = level.getBlockState(door.relative(facing.getCounterClockWise()));
+                    if (!neighbor.is(doorBlockType.getKey()) || neighbor.getValue(DoorBlock.FACING) != facing) {
+                        issue(IssueLevel.ERROR, "unpaired_right_door", door);
+                    }
+                    continue;
+                }
+                final BlockPos neighborPos = door.relative(facing.getClockWise());
+                final BlockState neighbor = level.getBlockState(neighborPos);
                 if (!neighbor.is(doorBlockType.getKey()) || neighbor.getValue(DoorBlock.FACING) != facing) {
-                    // TODO: Warning system
+                    issue(IssueLevel.ERROR, "unpaired_left_door", door);
                     continue;
                 }
                 final double rotation = SourceUtil.transformRotation(facing.toYRot());
@@ -113,6 +137,13 @@ public class MapGenerator {
                 map.entity(SourceEntity.builder("func_instance")
                     .origin(SourceUtil.transform(aabb, origin.add(0, 1, 0).relative(facing.getOpposite(), 2)))
                     .angles(new Vec3(-90, rotation, 0))
+                    .property("file", doorBlockType.getValue())
+                    .property("fixup_style", "0")
+                    .build()
+                );
+                map.entity(SourceEntity.builder("func_instance")
+                    .origin(SourceUtil.transform(aabb, origin.add(0, 1, 0).relative(facing, 0.5)))
+                    .angles(new Vec3(-90, Mth.wrapDegrees(rotation + 180), 0))
                     .property("file", doorBlockType.getValue())
                     .property("fixup_style", "0")
                     .build()
@@ -127,15 +158,15 @@ public class MapGenerator {
                     .property("UseAreaPortalFade", "0")
                     .build()
                 );
+
+                final List<BlockPos> doorBlocks = List.of(door, door.above(), neighborPos, neighborPos.above());
                 if (state.getValue(DoorBlock.OPEN) || neighbor.getValue(DoorBlock.OPEN)) {
+                    if (state.getValue(DoorBlock.OPEN) != neighbor.getValue(DoorBlock.OPEN)) {
+                        issue(IssueLevel.WARN, "mismatched_door_open", doorBlocks);
+                    }
                     autoConnections.add(new SourceEntity.EntityConnection(name, "Open"));
                 }
-
-                usedBlocks.add(door);
-                usedBlocks.add(door.above());
-                final BlockPos rightHalf = door.relative(state.getValue(DoorBlock.FACING).getCounterClockWise());
-                usedBlocks.add(rightHalf);
-                usedBlocks.add(rightHalf.above());
+                usedBlocks.addAll(doorBlocks);
             }
         }
     }
@@ -175,6 +206,14 @@ public class MapGenerator {
             ),
             materials.map
         ));
+    }
+
+    private void issue(IssueLevel level, @Translatable(prefix = "mc2p2.issue.message.") String message, BlockPos... blocks) {
+        issue(level, message, Arrays.asList(blocks));
+    }
+
+    private void issue(IssueLevel level, @Translatable(prefix = "mc2p2.issue.message.") String message, Collection<BlockPos> blocks) {
+        issueConsumer.issue(level, Component.translatable("mc2p2.issue.message." + message), blocks);
     }
 
     private String nextEntityName() {

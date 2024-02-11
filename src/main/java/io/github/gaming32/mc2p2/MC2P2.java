@@ -4,14 +4,26 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.logging.LogUtils;
+import io.github.gaming32.mc2p2.generator.IssueConsumer;
+import io.github.gaming32.mc2p2.generator.MapGenerator;
+import io.github.gaming32.mc2p2.network.ClearIssueMarkersPayload;
+import io.github.gaming32.mc2p2.network.IssueMarkersPayload;
 import io.github.gaming32.mc2p2.steam.SteamGames;
 import io.github.gaming32.mc2p2.steam.SteamUtil;
 import io.github.gaming32.mc2p2.vmf.SourceMap;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.networking.v1.PacketSender;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.ChatFormatting;
+import net.minecraft.Optionull;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.platinumdigitalgroup.jvdf.VDFWriter;
@@ -25,6 +37,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
@@ -38,6 +51,7 @@ public class MC2P2 implements ModInitializer {
     public void onInitialize() {
         LOGGER.info("Steam location: {}", SteamUtil.STEAM_DIR);
         LOGGER.info("Portal 2 location: {}", SteamGames.PORTAL_2_PATH);
+
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(literal("mc2p2")
                 .then(argument("from", BlockPosArgument.blockPos())
@@ -52,25 +66,57 @@ public class MC2P2 implements ModInitializer {
     }
 
     private static int generateMap(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        final PacketSender issueSender = Optionull.map(context.getSource().getPlayer(), ServerPlayNetworking::getSender);
+        if (issueSender != null) {
+            issueSender.sendPacket(ClearIssueMarkersPayload.INSTANCE);
+        }
         final BoundingBox mapArea = BoundingBox.fromCorners(
             BlockPosArgument.getLoadedBlockPos(context, "from"),
             BlockPosArgument.getLoadedBlockPos(context, "to")
         );
         final String mapName = StringArgumentType.getString(context, "name"); // TODO: Validation
-        generateMap(mapName, context.getSource().getLevel(), mapArea);
-        compileMap(mapName, true, context.getSource().getServer(), t -> {
-            if (t == null) {
-                LOGGER.info("Finished compiling map");
+        context.getSource().sendSuccess(() -> Component.translatable("mc2p2.generate.starting"), false);
+        generateMap(mapName, context.getSource().getLevel(), mapArea, (level, message, blocks) -> {
+            final MutableComponent component = Component.translatable("mc2p2.issue.level." + level.getSerializedName(), message);
+            component.withStyle(level.color);
+            if (!blocks.isEmpty()) {
+                final BlockPos pos = blocks.iterator().next();
+                component.append(" ").append(
+                    Component.translatable("mc2p2.issue.log.position", pos.getX(), pos.getY(), pos.getZ()).withStyle(s -> s
+                        .applyFormat(ChatFormatting.UNDERLINE)
+                        .withHoverEvent(new HoverEvent(
+                            HoverEvent.Action.SHOW_TEXT,
+                            Component.translatable("mc2p2.issue.log.teleport")
+                        ))
+                        .withClickEvent(new ClickEvent(
+                            ClickEvent.Action.RUN_COMMAND,
+                            "/tp " + pos.getX() + " " + pos.getY() + " " + pos.getZ()
+                        ))
+                    )
+                );
+            }
+            context.getSource().sendSystemMessage(component);
+            if (issueSender != null) {
+                issueSender.sendPacket(new IssueMarkersPayload(level, message, blocks));
             }
         });
-        context.getSource().sendSuccess(() -> Component.literal("Hi"), false);
+        context.getSource().sendSuccess(() -> Component.translatable("mc2p2.compile.starting"), false);
+        compileMap(mapName, true, context.getSource().getServer(), t -> {
+            if (t == null) {
+                LOGGER.info("Compiled map successfully");
+                context.getSource().sendSuccess(() -> Component.translatable("mc2p2.compile.success"), false);
+            } else {
+                LOGGER.error("Failed to compile map", t);
+                context.getSource().sendFailure(Component.translatable("mc2p2.compile.error", t.getLocalizedMessage()));
+            }
+        });
         return 1;
     }
 
-    public static void generateMap(String mapName, ServerLevel level, BoundingBox area) {
+    public static void generateMap(String mapName, ServerLevel level, BoundingBox area, IssueConsumer issueConsumer) {
         if (SteamGames.PORTAL_2_PATH == null) return;
         final Path mapPath = SteamGames.PORTAL_2_PATH.resolve("sdk_content/maps/" + mapName + ".vmf");
-        final SourceMap map = new MapGenerator(level, area).generate();
+        final SourceMap map = new MapGenerator(level, area, issueConsumer).generate();
         try {
             Files.writeString(mapPath, new VDFWriter().write(map.toVmf(), true), StandardCharsets.UTF_8);
         } catch (IOException e) {
@@ -111,11 +157,13 @@ public class MC2P2 implements ModInitializer {
                     }
                 }
             }, serverExecutor)
-            .exceptionally(t -> {
-                LOGGER.error("Failed to compile {}", mapName, t);
+            .exceptionallyAsync(t -> {
+                if (t instanceof CompletionException && t.getCause() != null) {
+                    t = t.getCause();
+                }
                 onFinishCompile.accept(t);
                 return null;
-            });
+            }, serverExecutor);
     }
 
     private static CompletableFuture<Void> runCompilerStep(String executable, Path mapPath) {

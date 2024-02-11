@@ -1,0 +1,15 @@
+{
+  "mc2p2.generate.starting": "Generating map...",
+  "mc2p2.compile.starting": "Compiling map...",
+  "mc2p2.compile.success": "Map compiled successfully.",
+  "mc2p2.compile.error": "Map compile failed. %s",
+  "mc2p2.issue.level.info": "Information: %s",
+  "mc2p2.issue.level.warn": "Warning: %s",
+  "mc2p2.issue.level.error": "Error: %s",
+  "mc2p2.issue.log.position": "[%s, %s, %s]",
+  "mc2p2.issue.log.teleport": "Teleport!",
+  "mc2p2.issue.message.unpaired_right_door": "Unpaired right door",
+  "mc2p2.issue.message.unpaired_left_door": "Unpaired left door",
+  "mc2p2.issue.message.mismatched_door_open": "Door open mismatch",
+  "mc2p2.issue.message.unknown_block": "Unmapped block %s"
+}
