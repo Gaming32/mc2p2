@@ -1,6 +1,7 @@
 package io.github.gaming32.minecrafttop2.vmf;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -35,5 +36,9 @@ public class SourceUtil {
             (pos.getY() - bounds.minY()) * 64,
             (pos.getZ() - bounds.minZ()) * 64
         );
+    }
+
+    public static double transformRotation(double rotation) {
+        return Mth.wrapDegrees(-rotation + 90);
     }
 }
