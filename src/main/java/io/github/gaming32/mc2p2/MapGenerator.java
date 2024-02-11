@@ -1,13 +1,13 @@
-package io.github.gaming32.minecrafttop2;
+package io.github.gaming32.mc2p2;
 
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
-import io.github.gaming32.minecrafttop2.util.MC2P2Util;
-import io.github.gaming32.minecrafttop2.vmf.MaterialInfo;
-import io.github.gaming32.minecrafttop2.vmf.SimpleBrush;
-import io.github.gaming32.minecrafttop2.vmf.SourceEntity;
-import io.github.gaming32.minecrafttop2.vmf.SourceMap;
-import io.github.gaming32.minecrafttop2.vmf.SourceUtil;
+import io.github.gaming32.mc2p2.util.MC2P2Util;
+import io.github.gaming32.mc2p2.vmf.MaterialInfo;
+import io.github.gaming32.mc2p2.vmf.SimpleBrush;
+import io.github.gaming32.mc2p2.vmf.SourceEntity;
+import io.github.gaming32.mc2p2.vmf.SourceMap;
+import io.github.gaming32.mc2p2.vmf.SourceUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;

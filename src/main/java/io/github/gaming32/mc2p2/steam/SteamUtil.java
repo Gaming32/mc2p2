@@ -1,10 +1,10 @@
-package io.github.gaming32.minecrafttop2.steam;
+package io.github.gaming32.mc2p2.steam;
 
 import com.sun.jna.platform.win32.Advapi32Util;
 import com.sun.jna.platform.win32.Win32Exception;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinReg;
-import io.github.gaming32.minecrafttop2.MinecraftToPortal2;
+import io.github.gaming32.mc2p2.MC2P2;
 import net.minecraft.Optionull;
 import net.minecraft.Util;
 import net.platinumdigitalgroup.jvdf.VDFNode;
@@ -25,7 +25,7 @@ public class SteamUtil {
         try {
             return readVdf(steamDir.resolve("steamapps/libraryfolders.vdf")).getSubNode("libraryfolders");
         } catch (Exception e) {
-            MinecraftToPortal2.LOGGER.error("Failed to read libraryfolders.vdf", e);
+            MC2P2.LOGGER.error("Failed to read libraryfolders.vdf", e);
             return null;
         }
     });
@@ -73,7 +73,7 @@ public class SteamUtil {
                 }
             }
         }
-        MinecraftToPortal2.LOGGER.warn("Unable to find Steam installation (Windows)");
+        MC2P2.LOGGER.warn("Unable to find Steam installation (Windows)");
         return null;
     }
 
@@ -89,7 +89,7 @@ public class SteamUtil {
             .filter(Files::isDirectory)
             .findFirst()
             .orElseGet(() -> {
-                MinecraftToPortal2.LOGGER.warn("Unable to find Steam installation (POSIX)");
+                MC2P2.LOGGER.warn("Unable to find Steam installation (POSIX)");
                 return null;
             });
     }

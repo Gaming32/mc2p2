@@ -1,6 +1,6 @@
-package io.github.gaming32.minecrafttop2.vmf;
+package io.github.gaming32.mc2p2.vmf;
 
-import io.github.gaming32.minecrafttop2.util.MC2P2Util;
+import io.github.gaming32.mc2p2.util.MC2P2Util;
 import net.minecraft.core.Direction;
 
 import java.util.EnumMap;

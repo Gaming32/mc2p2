@@ -1,4 +1,4 @@
-package io.github.gaming32.minecrafttop2.util;
+package io.github.gaming32.mc2p2.util;
 
 import net.minecraft.Util;
 import net.minecraft.core.Direction;

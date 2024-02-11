@@ -1,4 +1,4 @@
-package io.github.gaming32.minecrafttop2.vmf;
+package io.github.gaming32.mc2p2.vmf;
 
 import net.platinumdigitalgroup.jvdf.VDFNode;
 

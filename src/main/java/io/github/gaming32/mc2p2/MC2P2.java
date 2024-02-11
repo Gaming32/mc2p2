@@ -1,12 +1,12 @@
-package io.github.gaming32.minecrafttop2;
+package io.github.gaming32.mc2p2;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.logging.LogUtils;
-import io.github.gaming32.minecrafttop2.steam.SteamGames;
-import io.github.gaming32.minecrafttop2.steam.SteamUtil;
-import io.github.gaming32.minecrafttop2.vmf.SourceMap;
+import io.github.gaming32.mc2p2.steam.SteamGames;
+import io.github.gaming32.mc2p2.steam.SteamUtil;
+import io.github.gaming32.mc2p2.vmf.SourceMap;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.CommandSourceStack;
@@ -31,7 +31,7 @@ import java.util.function.Consumer;
 import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
-public class MinecraftToPortal2 implements ModInitializer {
+public class MC2P2 implements ModInitializer {
     public static final Logger LOGGER = LogUtils.getLogger();
 
     @Override
@@ -43,7 +43,7 @@ public class MinecraftToPortal2 implements ModInitializer {
                 .then(argument("from", BlockPosArgument.blockPos())
                     .then(argument("to", BlockPosArgument.blockPos())
                         .then(argument("name", StringArgumentType.word())
-                            .executes(MinecraftToPortal2::generateMap)
+                            .executes(MC2P2::generateMap)
                         )
                     )
                 )
