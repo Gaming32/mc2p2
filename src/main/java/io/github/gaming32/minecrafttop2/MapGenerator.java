@@ -1,5 +1,7 @@
 package io.github.gaming32.minecrafttop2;
 
+import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.Multimap;
 import io.github.gaming32.minecrafttop2.util.MC2P2Util;
 import io.github.gaming32.minecrafttop2.vmf.MaterialInfo;
 import io.github.gaming32.minecrafttop2.vmf.SimpleBrush;
@@ -17,7 +19,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoorHingeSide;
-import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -42,13 +43,17 @@ public class MapGenerator {
             "METAL/BLACK_CEILING_METAL_001B"
         )
     );
+    private static final Map<Block, String> DOOR_BLOCKS = Map.of(
+        Blocks.OAK_DOOR, "instances/p2editor/door_frame_white.vmf",
+        Blocks.DARK_OAK_DOOR, "instances/p2editor/door_frame_black.vmf"
+    );
 
     private final ServerLevel level;
     private final BoundingBox area;
     private final AABB aabb;
     private final SourceMap.Builder map;
-    private final Set<BlockPos> usedNonAir = new HashSet<>();
-    private final Set<BlockPos> unusedNonAir = new HashSet<>();
+    private final Set<BlockPos> usedBlocks = new HashSet<>();
+    private final Multimap<Block, BlockPos> blockLookup = LinkedHashMultimap.create();
     private final List<SourceEntity.EntityConnection> autoConnections = new ArrayList<>();
     private int entityNameId = 1;
 
@@ -92,45 +97,46 @@ public class MapGenerator {
     }
 
     private void generateDoors() {
-        final List<BlockPos> doors = unusedNonAir.stream().filter(pos -> {
-            final BlockState state = level.getBlockState(pos);
-            if (!state.is(Blocks.OAK_DOOR) && !state.is(Blocks.DARK_OAK_DOOR)) {
-                return false;
-            }
-            return state.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER && state.getValue(DoorBlock.HINGE) == DoorHingeSide.LEFT;
-        }).toList();
-        for (final BlockPos door : doors) {
-            final BlockState state = level.getBlockState(door);
-            final String color = state.is(Blocks.OAK_DOOR) ? "white.vmf" : "black.vmf";
-            final Direction facing = state.getValue(DoorBlock.FACING);
-            final double rotation = SourceUtil.transformRotation(facing.toYRot());
-            final Vec3 origin = Vec3.atLowerCornerOf(door);
-            map.entity(SourceEntity.builder("func_instance")
-                .origin(SourceUtil.transform(aabb, origin.add(0, 1, 0).relative(facing.getOpposite(), 2)))
-                .angles(new Vec3(-90, rotation, 0))
-                .property("file", "instances/p2editor/door_frame_" + color)
-                .property("fixup_style", "0")
-                .build()
-            );
-            final String name = nextEntityName();
-            map.entity(SourceEntity.builder("prop_testchamber_door")
-                .name(name)
-                .origin(SourceUtil.transform(aabb, origin.relative(facing.getOpposite(), 0.75)))
-                .angles(new Vec3(0, Mth.wrapDegrees(rotation + 180), 0))
-                .property("AreaPortalFadeEnd", "0")
-                .property("AreaPortalFadeStart", "0")
-                .property("UseAreaPortalFade", "0")
-                .build()
-            );
-            if (state.getValue(DoorBlock.OPEN)) {
-                autoConnections.add(new SourceEntity.EntityConnection(name, "Open"));
-            }
+        for (final var doorBlockType : DOOR_BLOCKS.entrySet()) {
+            for (final BlockPos door : blockLookup.removeAll(doorBlockType.getKey())) {
+                if (!usedBlocks.add(door)) continue;
+                final BlockState state = level.getBlockState(door);
+                if (state.getValue(DoorBlock.HINGE) != DoorHingeSide.LEFT) continue;
+                final Direction facing = state.getValue(DoorBlock.FACING);
+                final BlockState neighbor = level.getBlockState(door.relative(facing.getCounterClockWise()));
+                if (!neighbor.is(doorBlockType.getKey()) || neighbor.getValue(DoorBlock.FACING) != facing) {
+                    // TODO: Warning system
+                    continue;
+                }
+                final double rotation = SourceUtil.transformRotation(facing.toYRot());
+                final Vec3 origin = Vec3.atLowerCornerOf(door);
+                map.entity(SourceEntity.builder("func_instance")
+                    .origin(SourceUtil.transform(aabb, origin.add(0, 1, 0).relative(facing.getOpposite(), 2)))
+                    .angles(new Vec3(-90, rotation, 0))
+                    .property("file", doorBlockType.getValue())
+                    .property("fixup_style", "0")
+                    .build()
+                );
+                final String name = nextEntityName();
+                map.entity(SourceEntity.builder("prop_testchamber_door")
+                    .name(name)
+                    .origin(SourceUtil.transform(aabb, origin.relative(facing.getOpposite(), 0.75)))
+                    .angles(new Vec3(0, Mth.wrapDegrees(rotation + 180), 0))
+                    .property("AreaPortalFadeEnd", "0")
+                    .property("AreaPortalFadeStart", "0")
+                    .property("UseAreaPortalFade", "0")
+                    .build()
+                );
+                if (state.getValue(DoorBlock.OPEN) || neighbor.getValue(DoorBlock.OPEN)) {
+                    autoConnections.add(new SourceEntity.EntityConnection(name, "Open"));
+                }
 
-            markUsed(door);
-            markUsed(door.above());
-            final BlockPos rightHalf = door.relative(state.getValue(DoorBlock.FACING).getCounterClockWise());
-            markUsed(rightHalf);
-            markUsed(rightHalf.above());
+                usedBlocks.add(door);
+                usedBlocks.add(door.above());
+                final BlockPos rightHalf = door.relative(state.getValue(DoorBlock.FACING).getCounterClockWise());
+                usedBlocks.add(rightHalf);
+                usedBlocks.add(rightHalf.above());
+            }
         }
     }
 
@@ -140,10 +146,10 @@ public class MapGenerator {
             if (state.isAir()) return;
             final MaterialSet materials = BRUSH_BLOCKS.get(state.getBlock());
             if (materials != null) {
-                if (!usedNonAir.add(pos.immutable())) return;
+                if (!usedBlocks.add(pos.immutable())) return;
                 scanBrush(pos, state.getBlock(), materials);
             } else {
-                unusedNonAir.add(pos.immutable());
+                blockLookup.put(state.getBlock(), pos.immutable());
             }
         });
     }
@@ -155,11 +161,11 @@ public class MapGenerator {
             final int end = MC2P2Util.getSide(area, dir);
             while (MC2P2Util.getSide(brushBounds, dir) != end) {
                 final BoundingBox newBlocks = MC2P2Util.oneSided(brushBounds, dir).move(dir.getNormal());
-                if (BlockPos.betweenClosedStream(newBlocks).anyMatch(b -> usedNonAir.contains(b) || !level.getBlockState(b).is(type))) {
+                if (BlockPos.betweenClosedStream(newBlocks).anyMatch(b -> usedBlocks.contains(b) || !level.getBlockState(b).is(type))) {
                     break;
                 }
                 brushBounds.encapsulate(newBlocks);
-                BlockPos.betweenClosedStream(newBlocks).forEach(p -> usedNonAir.add(p.immutable()));
+                BlockPos.betweenClosedStream(newBlocks).forEach(p -> usedBlocks.add(p.immutable()));
             }
         }
         map.brush(new SimpleBrush(
@@ -169,11 +175,6 @@ public class MapGenerator {
             ),
             materials.map
         ));
-    }
-
-    private void markUsed(BlockPos pos) {
-        unusedNonAir.remove(pos);
-        usedNonAir.add(pos);
     }
 
     private String nextEntityName() {
