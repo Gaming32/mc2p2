@@ -21,9 +21,11 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.ButtonBlock;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.IronBarsBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.AttachFace;
 import net.minecraft.world.level.block.state.properties.DoorHingeSide;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
@@ -35,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -67,7 +70,10 @@ public class MapGenerator {
     private final SourceMap.Builder map;
     private final Set<BlockPos> usedBlocks = new HashSet<>();
     private final Multimap<Block, BlockPos> blockLookup = LinkedHashMultimap.create();
+
     private final List<SourceEntity.EntityConnection> autoConnections = new ArrayList<>();
+
+    private final Map<BlockPos, String> entityNamesPerBlock = new HashMap<>();
     private int entityNameId = 1;
 
     private final Map<BlockPos, BlockState> blockStateCache;
@@ -87,6 +93,7 @@ public class MapGenerator {
     public SourceMap generate() {
         scanForBrushes();
         generateDoors();
+        generateButtons();
         generateObservationRooms();
         convertEntities();
         for (final var entry : blockLookup.asMap().entrySet()) {
@@ -100,6 +107,30 @@ public class MapGenerator {
             generateLogicAuto();
         }
         return map.build();
+    }
+
+    private void generateButtons() {
+        for (final BlockPos button : blockLookup.removeAll(Blocks.OAK_BUTTON)) {
+            final BlockState state = getBlockState(button);
+            final Direction facing = state.getValue(ButtonBlock.FACING);
+            final AttachFace face = state.getValue(ButtonBlock.FACE);
+            final Vec3 origin = switch (face) {
+                case FLOOR, CEILING -> Vec3.upFromBottomCenterOf(button, face == AttachFace.CEILING ? 1 : 0).relative(facing, 0.25);
+                case WALL -> Vec3.atCenterOf(button).relative(facing.getOpposite(), 0.5);
+            };
+            final float yRotOffset = face == AttachFace.WALL ? 180 : 0;
+            map.entity(SourceEntity.builder("prop_button")
+                .origin(SourceUtil.transform(aabb, origin))
+                .angles(new Vec3(
+                    face == AttachFace.WALL ? 90 : 0,
+                    SourceUtil.transformRotation(facing.getOpposite().toYRot() + yRotOffset),
+                    face == AttachFace.CEILING ? 180 : 0
+                ))
+                .property("Delay", "1")
+                .build()
+            );
+            usedBlocks.add(button);
+        }
     }
 
     private void generateObservationRooms() {
@@ -257,7 +288,7 @@ public class MapGenerator {
                     .property("fixup_style", "0")
                     .build()
                 );
-                final String name = nextEntityName();
+                final String name = getEntityName(door);
                 map.entity(SourceEntity.builder("prop_testchamber_door")
                     .name(name)
                     .origin(SourceUtil.transform(aabb, origin.relative(facing.getOpposite(), 0.75)))
@@ -276,6 +307,11 @@ public class MapGenerator {
                     autoConnections.add(new SourceEntity.EntityConnection(name, "Open"));
                 }
                 usedBlocks.addAll(doorBlocks);
+                for (final BlockPos doorBlock : doorBlocks) {
+                    if (doorBlock != door) {
+                        entityNamesPerBlock.put(doorBlock, name);
+                    }
+                }
             }
         }
     }
@@ -332,8 +368,8 @@ public class MapGenerator {
         issueConsumer.issue(level, Component.translatable("mc2p2.issue.message." + message), blocks);
     }
 
-    private String nextEntityName() {
-        return "named_entity_" + entityNameId++;
+    private String getEntityName(BlockPos pos) {
+        return entityNamesPerBlock.computeIfAbsent(pos, k -> "named_entity_" + entityNameId++);
     }
 
     private SourceMap.Builder initializeMap() {
