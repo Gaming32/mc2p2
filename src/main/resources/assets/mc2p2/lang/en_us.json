@@ -11,5 +11,10 @@
   "mc2p2.issue.message.unpaired_right_door": "Unpaired right door",
   "mc2p2.issue.message.unpaired_left_door": "Unpaired left door",
   "mc2p2.issue.message.mismatched_door_open": "Door open mismatch",
+  "mc2p2.issue.message.glass_pane_small": "Glass pane needs to be connected",
+  "mc2p2.issue.message.glass_pane_too_linked": "Glass pane is linked too much",
+  "mc2p2.issue.message.glass_pane_not_glass": "Glass pane needs to have glass behind it",
+  "mc2p2.issue.message.no_observation_room": "No suitable observation room size",
+  "mc2p2.issue.message.observation_room_no_room": "Observation rooms need at least 4 blocks of free space behind them",
   "mc2p2.issue.message.unknown_block": "Unmapped block %s"
 }
