@@ -116,7 +116,13 @@ public class MC2P2 implements ModInitializer {
     public static void generateMap(String mapName, ServerLevel level, BoundingBox area, IssueConsumer issueConsumer) {
         if (SteamGames.PORTAL_2_PATH == null) return;
         final Path mapPath = SteamGames.PORTAL_2_PATH.resolve("sdk_content/maps/" + mapName + ".vmf");
-        final SourceMap map = new MapGenerator(level, area, issueConsumer).generate();
+        final SourceMap map;
+        try {
+            map = new MapGenerator(level, area, issueConsumer).generate();
+        } catch (Throwable t) {
+            LOGGER.error("Failed to generate map", t);
+            throw t;
+        }
         try {
             Files.writeString(mapPath, new VDFWriter().write(map.toVmf(), true), StandardCharsets.UTF_8);
         } catch (IOException e) {

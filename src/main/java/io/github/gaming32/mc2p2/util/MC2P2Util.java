@@ -1,5 +1,6 @@
 package io.github.gaming32.mc2p2.util;
 
+import com.google.common.collect.ImmutableMap;
 import it.unimi.dsi.fastutil.ints.IntIntPair;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -11,21 +12,23 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
 public class MC2P2Util {
     public static final Direction[] DIRECTIONS = Direction.values();
-    private static final Map<Direction, Vec3> NORMAL_32_MAP = Util.make(new EnumMap<>(Direction.class), map -> {
-        for (final Direction dir : DIRECTIONS) {
-            map.put(dir, Vec3.atLowerCornerOf(dir.getNormal().multiply(32)));
+    public static final Map<Direction, List<Direction>> ADJACENT_DIRECTIONS = Util.make(() -> {
+        final ImmutableMap.Builder<Direction, List<Direction>> result = ImmutableMap.builderWithExpectedSize(DIRECTIONS.length);
+        final List<Direction> horizontalDirections = Direction.Plane.HORIZONTAL.stream().toList();
+        for (final Direction direction : DIRECTIONS) {
+            result.put(direction, switch (direction.getAxis().getPlane()) {
+                case HORIZONTAL -> List.of(Direction.UP, direction.getCounterClockWise(), Direction.DOWN, direction.getClockWise());
+                case VERTICAL -> horizontalDirections;
+            });
         }
+        return result.build();
     });
-
-    public static Vec3 getNormal32(Direction direction) {
-        return NORMAL_32_MAP.get(direction);
-    }
 
     public static Vec3 getCorner(AABB aabb, Direction one, Direction two, Direction three) {
         final Direction xDir = choose(Direction.Axis.X, one, two, three);

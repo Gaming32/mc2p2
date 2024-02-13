@@ -11,7 +11,10 @@ import io.github.gaming32.mc2p2.vmf.SimpleBrush;
 import io.github.gaming32.mc2p2.vmf.SourceEntity;
 import io.github.gaming32.mc2p2.vmf.SourceMap;
 import io.github.gaming32.mc2p2.vmf.SourceUtil;
+import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.IntIntPair;
+import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -43,9 +46,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 public class MapGenerator {
-    private static final Map<Block, MaterialSet> BRUSH_BLOCKS = Map.of(
+    private static final Map<Block, MaterialSet> BRUSH_BLOCKS = ImmutableMap.of(
         Blocks.WHITE_CONCRETE, new MaterialSet(
             "TILE/WHITE_WALL_TILE003A",
             "TILE/WHITE_FLOOR_TILE002A",
@@ -61,6 +65,12 @@ public class MapGenerator {
         Blocks.OAK_DOOR, "instances/p2editor/door_frame_white.vmf",
         Blocks.DARK_OAK_DOOR, "instances/p2editor/door_frame_black.vmf"
     );
+    private static final Int2ObjectMap<LabFreeSpace> LAB_FREE_SPACES = Util.make(new Int2ObjectArrayMap<>(4), map -> {
+        map.put(4, new LabFreeSpace(2, 2));
+        map.put(3, new LabFreeSpace(3, 1));
+        map.put(2, new LabFreeSpace(2, 1));
+        map.put(1, new LabFreeSpace(4, 1));
+    });
 
     private final ServerLevel level;
     private final BoundingBox area;
@@ -75,6 +85,8 @@ public class MapGenerator {
 
     private final Map<BlockPos, String> entityNamesPerBlock = new HashMap<>();
     private int entityNameId = 1;
+
+    private final Map<BlockPos, Direction> thinBrushBlocks = new HashMap<>();
 
     private final Map<BlockPos, BlockState> blockStateCache;
     private final Function<BlockPos, BlockState> blockStateLookupFunction;
@@ -91,10 +103,12 @@ public class MapGenerator {
     }
 
     public SourceMap generate() {
+        initializeBlockLookup();
+        generateLabs();
         scanForBrushes();
         generateDoors();
         generateButtons();
-        generateObservationRooms();
+        scanForThinBrushes();
         convertEntities();
         for (final var entry : blockLookup.asMap().entrySet()) {
             issueConsumer.issue(
@@ -133,7 +147,7 @@ public class MapGenerator {
         }
     }
 
-    private void generateObservationRooms() {
+    private void generateLabs() {
         final Collection<BlockPos> glassBlocks = blockLookup.get(Blocks.GLASS);
         for (final BlockPos pane : blockLookup.removeAll(Blocks.GLASS_PANE)) {
             if (usedBlocks.contains(pane)) continue;
@@ -156,13 +170,31 @@ public class MapGenerator {
                         usedBlocks.add(e);
                         glassBlocks.remove(e);
                     });
-                final boolean hasRoom = BlockPos.betweenClosedStream(
-                    MC2P2Util.moved(match, facing.getOpposite(), 4)
+                final LabFreeSpace labFreeSpace = LAB_FREE_SPACES.get(width);
+                final boolean hasRoomBehind = BlockPos.betweenClosedStream(
+                    MC2P2Util.moved(match, facing.getOpposite(), labFreeSpace.depth)
                         .encapsulate(pane.relative(facing.getOpposite(), 2))
                 ).map(this::getBlockState).allMatch(s -> s.isAir() && !s.is(Blocks.VOID_AIR));
-                if (!hasRoom) {
-                    issue(IssueLevel.WARN, "observation_room_no_room", pane);
+                if (!hasRoomBehind) {
+                    issueConsumer.issue(
+                        IssueLevel.WARN,
+                        Component.translatable(
+                            "mc2p2.issue.message.observation_room_no_room"
+                        ),
+                        List.of(pane)
+                    );
                 }
+                BlockPos.betweenClosedStream(
+                    MC2P2Util.copy(match)
+                        .encapsulate(new BlockPos(match.minX(), match.minY() - 1, match.minZ()).relative(facing.getCounterClockWise()))
+                        .encapsulate(new BlockPos(match.maxX(), match.maxY() + labFreeSpace.height, match.maxZ()).relative(facing.getClockWise()))
+                ).filter(p -> !match.isInside(p)).forEach(adjacentPos -> {
+                    final Block adjacentBlock = getBlockState(adjacentPos).getBlock();
+                    if (!BRUSH_BLOCKS.containsKey(adjacentBlock)) return;
+                    final BlockPos immutable = adjacentPos.immutable();
+                    blockLookup.remove(adjacentBlock, immutable);
+                    thinBrushBlocks.put(immutable, facing);
+                });
                 map.entity(SourceEntity.builder("func_instance")
                     .origin(SourceUtil.transform(aabb, new Vec3(match.minX(), match.minY() + 1, match.minZ()).relative(facing.getClockWise(), 0.5 * width)))
                     .angles(new Vec3(0, SourceUtil.transformRotation(facing.toYRot()), 0))
@@ -316,41 +348,87 @@ public class MapGenerator {
         }
     }
 
-    private void scanForBrushes() {
+    private void initializeBlockLookup() {
         BlockPos.betweenClosedStream(area).forEach(pos -> {
             final BlockState state = getBlockState(pos);
             if (state.isAir()) return;
-            final MaterialSet materials = BRUSH_BLOCKS.get(state.getBlock());
-            if (materials != null) {
-                if (!usedBlocks.add(pos.immutable())) return;
-                scanBrush(pos, state.getBlock(), materials);
-            } else {
-                blockLookup.put(state.getBlock(), pos.immutable());
-            }
+            blockLookup.put(state.getBlock(), pos.immutable());
         });
     }
 
+    private void scanForBrushes() {
+        final List<Direction> directions = Arrays.asList(MC2P2Util.DIRECTIONS);
+        for (final var brushBlock : BRUSH_BLOCKS.entrySet()) {
+            final Collection<BlockPos> inBlock = blockLookup.removeAll(brushBlock.getKey());
+            for (final BlockPos pos : inBlock) {
+                if (!usedBlocks.add(pos)) continue;
+                scanBrush(
+                    pos, inBlock::contains, brushBlock.getValue(), directions,
+                    bounds -> new AABB(
+                        SourceUtil.transform(aabb, new Vec3(bounds.minX(), bounds.minY(), bounds.minZ())),
+                        SourceUtil.transform(aabb, new Vec3(bounds.maxX() + 1, bounds.maxY() + 1, bounds.maxZ() + 1))
+                    )
+                );
+            }
+        }
+    }
+
+    private void scanForThinBrushes() {
+        for (final var thinBrush : thinBrushBlocks.entrySet()) {
+            if (!usedBlocks.add(thinBrush.getKey())) continue;
+            final Block targetBlock = getBlockState(thinBrush.getKey()).getBlock();
+            final Direction targetDir = thinBrush.getValue();
+            scanBrush(
+                thinBrush.getKey(),
+                pos -> getBlockState(pos).is(targetBlock) && thinBrushBlocks.get(pos) == targetDir,
+                BRUSH_BLOCKS.get(targetBlock), MC2P2Util.ADJACENT_DIRECTIONS.get(targetDir),
+                bounds -> {
+                    if (targetDir.getAxisDirection() == Direction.AxisDirection.POSITIVE) {
+                        return new AABB(
+                            SourceUtil.transform(aabb, new Vec3(
+                                bounds.minX() + targetDir.getStepX() * 0.75,
+                                bounds.minY() + targetDir.getStepY() * 0.75,
+                                bounds.minZ() + targetDir.getStepZ() * 0.75
+                            )),
+                            SourceUtil.transform(aabb, new Vec3(bounds.maxX() + 1, bounds.maxY() + 1, bounds.maxZ() + 1))
+                        );
+                    } else {
+                        return new AABB(
+                            SourceUtil.transform(aabb, new Vec3(bounds.minX(), bounds.minY(), bounds.minZ())),
+                            SourceUtil.transform(aabb, new Vec3(
+                                // The step is negative, so use addition
+                                bounds.maxX() + 1 + targetDir.getStepX() * 0.75,
+                                bounds.maxY() + 1 + targetDir.getStepY() * 0.75,
+                                bounds.maxZ() + 1 + targetDir.getStepZ() * 0.75
+                            ))
+                        );
+                    }
+                }
+            );
+        }
+    }
+
     @SuppressWarnings("deprecation")
-    private void scanBrush(BlockPos start, Block type, MaterialSet materials) {
+    private void scanBrush(
+        BlockPos start,
+        Predicate<BlockPos> inBlock,
+        MaterialSet materials,
+        List<Direction> directions,
+        Function<BoundingBox, AABB> boundsTransformer
+    ) {
         final BoundingBox brushBounds = new BoundingBox(start);
-        for (final Direction dir : MC2P2Util.DIRECTIONS) {
+        for (final Direction dir : directions) {
             final int end = MC2P2Util.getSide(area, dir);
             while (MC2P2Util.getSide(brushBounds, dir) != end) {
                 final BoundingBox newBlocks = MC2P2Util.oneSided(brushBounds, dir).move(dir.getNormal());
-                if (BlockPos.betweenClosedStream(newBlocks).anyMatch(b -> usedBlocks.contains(b) || !getBlockState(b).is(type))) {
+                if (BlockPos.betweenClosedStream(newBlocks).anyMatch(b -> usedBlocks.contains(b) || !inBlock.test(b))) {
                     break;
                 }
                 brushBounds.encapsulate(newBlocks);
                 BlockPos.betweenClosedStream(newBlocks).forEach(p -> usedBlocks.add(p.immutable()));
             }
         }
-        map.brush(new SimpleBrush(
-            new AABB(
-                SourceUtil.transform(aabb, new Vec3(brushBounds.minX(), brushBounds.minY(), brushBounds.minZ())),
-                SourceUtil.transform(aabb, new Vec3(brushBounds.maxX() + 1, brushBounds.maxY() + 1, brushBounds.maxZ() + 1))
-            ),
-            materials.map
-        ));
+        map.brush(new SimpleBrush(boundsTransformer.apply(brushBounds), materials.map));
     }
 
     private BlockState getBlockState(BlockPos pos) {
@@ -434,5 +512,12 @@ public class MapGenerator {
             }
             return result;
         }
+    }
+
+    /**
+     * @param depth The number of free blocks behind the glass panes needed.
+     * @param height The number of thin blocks needed above the lab
+     */
+    private record LabFreeSpace(int depth, int height) {
     }
 }
