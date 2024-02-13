@@ -89,7 +89,6 @@ public class MapGenerator {
     private final Map<BlockPos, Direction> thinBrushBlocks = new HashMap<>();
 
     private final Map<BlockPos, BlockState> blockStateCache;
-    private final Function<BlockPos, BlockState> blockStateLookupFunction;
 
     public MapGenerator(ServerLevel level, BoundingBox area, IssueConsumer issueConsumer) {
         this.level = level;
@@ -99,7 +98,6 @@ public class MapGenerator {
         this.map = initializeMap();
 
         this.blockStateCache = Maps.newHashMapWithExpectedSize(area.getXSpan() * area.getYSpan() * area.getZSpan());
-        this.blockStateLookupFunction = level::getBlockState;
     }
 
     public SourceMap generate() {
@@ -147,6 +145,7 @@ public class MapGenerator {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private void generateLabs() {
         final Collection<BlockPos> glassBlocks = blockLookup.get(Blocks.GLASS);
         for (final BlockPos pane : blockLookup.removeAll(Blocks.GLASS_PANE)) {
@@ -293,14 +292,22 @@ public class MapGenerator {
                 final Direction facing = state.getValue(DoorBlock.FACING);
                 if (state.getValue(DoorBlock.HINGE) != DoorHingeSide.LEFT) {
                     final BlockState neighbor = getBlockState(door.relative(facing.getCounterClockWise()));
-                    if (!neighbor.is(doorBlockType.getKey()) || neighbor.getValue(DoorBlock.FACING) != facing) {
+                    if (
+                        !neighbor.is(doorBlockType.getKey())
+                            || neighbor.getValue(DoorBlock.FACING) != facing
+                            || neighbor.getValue(DoorBlock.HINGE) == DoorHingeSide.RIGHT
+                    ) {
                         issue(IssueLevel.ERROR, "unpaired_right_door", door);
                     }
                     continue;
                 }
                 final BlockPos neighborPos = door.relative(facing.getClockWise());
                 final BlockState neighbor = getBlockState(neighborPos);
-                if (!neighbor.is(doorBlockType.getKey()) || neighbor.getValue(DoorBlock.FACING) != facing) {
+                if (
+                    !neighbor.is(doorBlockType.getKey())
+                        || neighbor.getValue(DoorBlock.FACING) != facing
+                        || neighbor.getValue(DoorBlock.HINGE) == DoorHingeSide.LEFT
+                ) {
                     issue(IssueLevel.ERROR, "unpaired_left_door", door);
                     continue;
                 }
@@ -435,7 +442,11 @@ public class MapGenerator {
         if (!area.isInside(pos)) {
             return Blocks.VOID_AIR.defaultBlockState();
         }
-        return blockStateCache.computeIfAbsent(pos, blockStateLookupFunction);
+        BlockState state = blockStateCache.get(pos);
+        if (state == null) {
+            blockStateCache.put(pos.immutable(), state = level.getBlockState(pos));
+        }
+        return state;
     }
 
     private void issue(IssueLevel level, @Translatable(prefix = "mc2p2.issue.message.") String message, BlockPos... blocks) {
